@@ -24,9 +24,14 @@ POP = 0b01000110 #70 Pop the value at the top of the stack into the given regist
 PUSH = 0b01000101 #69 Push the value in the given register on the stack.
 CALL = 0b01010000 #80 Calls a subroutine (function) at the address stored in the register
 RET = 0b00010001 #17 Return from subroutine
+JMP = 0b01010100 #84 Jump to the address stored in the given register.
+JEQ = 0b01010101 #85 If `equal` flag, jump to the address in given register.
+JNE = 0b01010110 #86 If not `equal` flag, jump to the address in given register.
+
 
 ADD = 0b10100000 #160
 MUL = 0b10100010 #162
+CMP = 0b10100111 #167 Compare the values in two registers.
 
 SPreg = 7 #Dedicated CPU register for Stack Pointer for RAM
 
@@ -37,6 +42,7 @@ class CPU:
 		"""Construct a new CPU."""
 		self.running = True
 		self.pc = 0
+		self.fl = 0b000
 		self.registers = [0] * 8
 		self.ram = [0] * 256
 		self.registers[SPreg] = 244 #len(self.ram) - 1
@@ -48,7 +54,16 @@ class CPU:
 		self.branchtable[PUSH] = self.handle_PUSH
 		self.branchtable[CALL] = self.handle_CALL
 		self.branchtable[RET] = self.handle_RET
-		
+		self.branchtable[JMP] = self.handle_JMP
+		self.branchtable[JEQ] = self.handle_JEQ
+		self.branchtable[JNE] = self.handle_JNE
+
+		self.alutable = {}
+		self.alutable[ADD] = self.handle_ADD
+		self.alutable[MUL] = self.handle_MUL
+		self.alutable[CMP] = self.handle_CMP
+
+	# CPU Operations
 	def handle_HLT(self, operand_a, operand_b, Number_of_operands):
 		self.running = False
 
@@ -79,6 +94,41 @@ class CPU:
 		self.pc = self.ram[ self.registers[ SPreg]]
 		self.registers[SPreg] += 1
 
+	def handle_JMP(self, operand_a, operand_b, Number_of_operands):
+		self.pc = self.registers[operand_a]
+
+	def handle_JEQ(self, operand_a, operand_b, Number_of_operands):
+		if self.fl == 0b001:
+			self.pc = self.registers[operand_a]
+		else:
+			self.pc += Number_of_operands + 1
+
+	def handle_JNE(self, operand_a, operand_b, Number_of_operands):
+		if self.fl != 0b001:
+			self.pc = self.registers[operand_a]
+		else:
+			self.pc += Number_of_operands + 1
+
+
+	# ALU Operations
+	def handle_ADD(self, reg_a, reg_b):
+		self.registers[reg_a] += self.registers[reg_b]
+
+	def handle_MUL(self, reg_a, reg_b):
+		self.registers[reg_a] *= self.registers[reg_b]
+
+	def handle_CMP(self, reg_a, reg_b):
+		# `FL` bits: `00000LGE`
+		if self.registers[reg_a] == self.registers[reg_b]:
+			self.fl = 0b001
+		
+		if self.registers[reg_a] > self.registers[reg_b]:
+			self.fl = 0b010
+
+		if self.registers[reg_a] < self.registers[reg_b]:
+			self.fl = 0b100
+
+	# RAM operations
 	def ram_read(self, MAR):
 		return self.ram[MAR]
 
@@ -125,16 +175,17 @@ class CPU:
 	def alu(self, op, reg_a, reg_b):
 		"""ALU operations."""
 
-		if op == ADD:
-			self.registers[reg_a] += self.registers[reg_b]
+		# if op == ADD:
+		# 	self.registers[reg_a] += self.registers[reg_b]
 
-		elif op == MUL:
-			self.registers[reg_a] *= self.registers[reg_b]
+		# elif op == MUL:
+		# 	self.registers[reg_a] *= self.registers[reg_b]
+
+		if op in self.alutable:
+			self.alutable[op](reg_a, reg_b)
 
 		else:
 			raise Exception("Unsupported ALU operation")
-
-		self.pc += 3
 
 	def trace(self):
 		"""
@@ -176,10 +227,18 @@ class CPU:
 			Sets_PC = IR >> 4 & 0b0001
 			I_ID = IR & 0b00001111
 
+			self.trace()
+			
 			if Is_ALU:
 				self.alu(IR, operand_a, operand_b)
-			else:
+				self.pc += Number_of_operands + 1
+
+
+			elif IR in self.branchtable:
 				self.branchtable[IR](operand_a, operand_b, Number_of_operands)
+			
+			else:
+				raise Exception("Unsupported Operation")
 
 				# if IR == LDI:
 				# 	self.registers[operand_a] = operand_b
